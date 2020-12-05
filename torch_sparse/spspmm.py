@@ -1,6 +1,10 @@
 import torch
 from torch_sparse import transpose, to_scipy, from_scipy, coalesce
+from torch.utils.dlpack import to_dlpack
+from torch.utils.dlpack import from_dlpack
 
+import cupy as cp
+import cupyx
 import torch_sparse.spspmm_cpu
 
 if torch.cuda.is_available():
@@ -83,9 +87,26 @@ def mm(indexA, valueA, indexB, valueB, m, k, n):
     assert valueA.dtype == valueB.dtype
 
     if indexA.is_cuda:
-        return torch_sparse.spspmm_cuda.spspmm(indexA, valueA, indexB, valueB,
-                                               m, k, n)
+        # NOTE here is where the magic happens
+        rowsA = cp.fromDlpack(to_dlpack(indexA[0, :]))
+        colsA = cp.fromDlpack(to_dlpack(indexA[1, :]))
+        valuesA = cp.fromDlpack(to_dlpack(valueA))
 
+        rowsB = cp.fromDlpack(to_dlpack(indexB[0, :]))
+        colsB = cp.fromDlpack(to_dlpack(indexB[1, :]))
+        valuesB = cp.fromDlpack(to_dlpack(valueB))
+
+        A = cupyx.scipy.sparse.coo_matrix((valuesA, (rowsA, colsA)), shape=(m, k))
+        B = cupyx.scipy.sparse.coo_matrix((valuesB, (rowsB, colsB)), shape=(k, n))
+
+        C = (A * B).tocoo()
+
+        rows = from_dlpack(C.row.toDlpack())
+        cols = from_dlpack(C.col.toDlpack())
+        values = from_dlpack(C.data.toDlpack())
+
+        return torch.stack([rows, cols]).to(torch.int64), values
+        
     A = to_scipy(indexA, valueA, m, k)
     B = to_scipy(indexB, valueB, k, n)
     C = A.dot(B).tocoo().tocsr().tocoo()  # Force coalesce.
