@@ -88,24 +88,24 @@ def mm(indexA, valueA, indexB, valueB, m, k, n):
 
     if indexA.is_cuda:
         # NOTE here is where the magic happens
-        rowsA = cp.fromDlpack(to_dlpack(indexA[0, :]))
-        colsA = cp.fromDlpack(to_dlpack(indexA[1, :]))
-        valuesA = cp.fromDlpack(to_dlpack(valueA))
+        # return torch_sparse.spspmm_cuda.spspmm(indexA, valueA, indexB, valueB,
+                                            #    m, k, n)
+        idxA = cp.fromDlpack(to_dlpack(indexA))
+        valA = cp.fromDlpack(to_dlpack(valueA))
 
-        rowsB = cp.fromDlpack(to_dlpack(indexB[0, :]))
-        colsB = cp.fromDlpack(to_dlpack(indexB[1, :]))
-        valuesB = cp.fromDlpack(to_dlpack(valueB))
+        idxB = cp.fromDlpack(to_dlpack(indexB))
+        valB = cp.fromDlpack(to_dlpack(valueB))
 
-        A = cupyx.scipy.sparse.coo_matrix((valuesA, (rowsA, colsA)), shape=(m, k))
-        B = cupyx.scipy.sparse.coo_matrix((valuesB, (rowsB, colsB)), shape=(k, n))
+        # # TODO verificar se a tupla pode ser substituída pela transposição do index
+        # # TODO verificar consistência na organização de índices nas entradas e nas saídas
+        A = cupyx.scipy.sparse.coo_matrix((valA, idxA), shape=(m, k))
+        B = cupyx.scipy.sparse.coo_matrix((valB, idxB), shape=(k, n))
 
-        C = (A * B).tocoo()
-
-        rows = from_dlpack(C.row.toDlpack())
-        cols = from_dlpack(C.col.toDlpack())
+        C = A.dot(B).tocoo().tocsr().tocoo()  # Force coalesce.
+    
+        index = from_dlpack(cp.stack((C.col, C.row)).toDlpack()).to(torch.int64)
         values = from_dlpack(C.data.toDlpack())
-
-        return torch.stack([rows, cols]).to(torch.int64), values
+        return index, values
         
     A = to_scipy(indexA, valueA, m, k)
     B = to_scipy(indexB, valueB, k, n)
