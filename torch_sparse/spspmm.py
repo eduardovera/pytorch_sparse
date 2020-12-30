@@ -103,7 +103,7 @@ def mm(indexA, valueA, indexB, valueB, m, k, n):
 
         C = A.dot(B).tocoo().tocsr().tocoo()  # Force coalesce.
     
-        index = from_dlpack(cp.stack((C.col, C.row)).toDlpack()).to(torch.int64)
+        index = from_dlpack(cp.stack((C.row, C.col)).toDlpack()).to(torch.int64)
         values = from_dlpack(C.data.toDlpack())
         return index, values
         
